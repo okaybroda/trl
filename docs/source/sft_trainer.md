@@ -19,7 +19,7 @@ from trl import SFTConfig, SFTTrainer
 dataset = load_dataset("stanfordnlp/imdb", split="train")
 
 training_args = SFTConfig(
-    max_seq_length=512,
+    max_length=512,
     output_dir="/tmp",
 )
 trainer = SFTTrainer(
@@ -29,7 +29,7 @@ trainer = SFTTrainer(
 )
 trainer.train()
 ```
-Make sure to pass the correct value for `max_seq_length` as the default value will be set to `min(tokenizer.model_max_length, 1024)`.
+Make sure to pass the correct value for `max_length` as the default value will be set to `min(tokenizer.model_max_length, 1024)`.
 
 You can also construct a model outside of the trainer and pass it as follows:
 
@@ -72,12 +72,9 @@ dataset = load_dataset("lucasmccabe-lmi/CodeAlpaca-20k", split="train")
 model = AutoModelForCausalLM.from_pretrained("facebook/opt-350m")
 tokenizer = AutoTokenizer.from_pretrained("facebook/opt-350m")
 
-def formatting_prompts_func(example):
-    output_texts = []
-    for i in range(len(example['instruction'])):
-        text = f"### Question: {example['instruction'][i]}\n ### Answer: {example['output'][i]}"
-        output_texts.append(text)
-    return output_texts
+def formatting_prompt_func(example):
+    return f"### Question: {example['instruction']}\n ### Answer: {example['output']}"
+
 
 response_template = " ### Answer:"
 collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer)
@@ -86,7 +83,7 @@ trainer = SFTTrainer(
     model,
     train_dataset=dataset,
     args=SFTConfig(output_dir="/tmp"),
-    formatting_func=formatting_prompts_func,
+    formatting_func=formatting_prompt_func,
     data_collator=collator,
 )
 
@@ -246,26 +243,23 @@ Let us assume your dataset has two fields, `question` and `answer`. Therefore yo
 ```python
 ...
 def formatting_prompts_func(example):
-    output_texts = []
-    for i in range(len(example['question'])):
-        text = f"### Question: {example['question'][i]}\n ### Answer: {example['answer'][i]}"
-        output_texts.append(text)
-    return output_texts
+    return f"### Question: {example['question']}\n ### Answer: {example['answer']}"
+
 
 trainer = SFTTrainer(
     model,
     args=training_args,
     train_dataset=dataset,
-    formatting_func=formatting_prompts_func,
+    formatting_func=formatting_prompt_func,
 )
 
 trainer.train()
 ```
 To properly format your input make sure to process all the examples by looping over them and returning a list of processed text. Check out a full example of how to use SFTTrainer on alpaca dataset [here](https://github.com/huggingface/trl/pull/444#issue-1760952763)
 
-### Packing dataset ([`ConstantLengthDataset`])
+### Packing dataset
 
-[`SFTTrainer`] supports _example packing_, where multiple short examples are packed in the same input sequence to increase training efficiency. This is done with the [`ConstantLengthDataset`] utility class that returns constant length chunks of tokens from a stream of examples. To enable the usage of this dataset class, simply pass `packing=True` to the [`SFTConfig`] constructor.
+[`SFTTrainer`] supports _example packing_, where multiple short examples are packed in the same input sequence to increase training efficiency. To enable the usage of this dataset class, simply pass `packing=True` to the [`SFTConfig`] constructor.
 
 ```python
 ...
@@ -302,7 +296,6 @@ trainer = SFTTrainer(
 
 trainer.train()
 ```
-You can also customize the [`ConstantLengthDataset`] much more by directly passing the arguments to the [`SFTConfig`] constructor. Please refer to that class' signature for more information.
 
 ### Control over the pretrained model
 
@@ -431,9 +424,9 @@ Below are some numbers you can get in terms of speedup and memory efficiency, us
 
 | use_flash_attn_1 | model_name        | max_seq_len | batch_size | time per training step |
 | ---------------- | ----------------- | ----------- | ---------- | ---------------------- |
-| x                | facebook/opt-350m | 2048        | 8          | ~59.1s                 |
+| ✓                | facebook/opt-350m | 2048        | 8          | ~59.1s                 |
 |                  | facebook/opt-350m | 2048        | 8          | **OOM**                |
-| x                | facebook/opt-350m | 2048        | 4          | ~30.3s                 |
+| ✓                | facebook/opt-350m | 2048        | 4          | ~30.3s                 |
 |                  | facebook/opt-350m | 2048        | 4          | ~148.9s                |
 
 ### Using Flash Attention-2
@@ -550,12 +543,12 @@ import torch
 from trl import SFTConfig, SFTTrainer
 from unsloth import FastLanguageModel
 
-max_seq_length = 2048 # Supports automatic RoPE Scaling, so choose any number
+max_length = 2048 # Supports automatic RoPE Scaling, so choose any number
 
 # Load model
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name="unsloth/mistral-7b",
-    max_seq_length=max_seq_length,
+    max_seq_length=max_length,
     dtype=None,  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
     load_in_4bit=True,  # Use 4bit quantization to reduce memory usage. Can be False
     # token = "hf_...", # use one if using gated models like meta-llama/Llama-2-7b-hf
@@ -581,7 +574,7 @@ model = FastLanguageModel.get_peft_model(
     random_state=3407,
 )
 
-training_args = SFTConfig(output_dir="./output", max_seq_length=max_seq_length)
+training_args = SFTConfig(output_dir="./output", max_length=max_length)
 
 trainer = SFTTrainer(
     model=model,
@@ -604,17 +597,17 @@ With great memory reduction, you can potentially turn off cpu_offloading or grad
 | ![Speed up](https://raw.githubusercontent.com/linkedin/Liger-Kernel/main/docs/images/e2e-tps.png) | ![Memory](https://raw.githubusercontent.com/linkedin/Liger-Kernel/main/docs/images/e2e-memory.png) |
 
 
-1. To use Liger-Kernel in `SFTTrainer`, first install by 
+1. To use Liger-Kernel in [`SFTTrainer`], first install by 
 
 ```bash
 pip install liger-kernel
 ```
 
-2. Once installed, set `use_liger` in [`SFTConfig`]. No other changes are needed!
+2. Once installed, set `use_liger_kernel` in [`SFTConfig`]. No other changes are needed!
 
 ```python
 training_args = SFTConfig(
-  use_liger=True
+  use_liger_kernel=True
 )
 ```
 
@@ -624,7 +617,7 @@ To learn more about Liger-Kernel, visit their [official repository](https://gith
 
 Pay attention to the following best practices when training a model with that trainer:
 
-- [`SFTTrainer`] always truncates by default the sequences to the `max_seq_length` argument of the [`SFTConfig`]. If none is passed, the trainer will retrieve that value from the tokenizer. Some tokenizers do not provide a default value, so there is a check to retrieve the minimum between 1024 and that value. Make sure to check it before training.
+- [`SFTTrainer`] always truncates by default the sequences to the `max_length` argument of the [`SFTConfig`]. If none is passed, the trainer will retrieve that value from the tokenizer. Some tokenizers do not provide a default value, so there is a check to retrieve the minimum between 1024 and that value. Make sure to check it before training.
 - For training adapters in 8bit, you might need to tweak the arguments of the `prepare_model_for_kbit_training` method from PEFT, hence we advise users to use `prepare_in_int8_kwargs` field, or create the `PeftModel` outside the [`SFTTrainer`] and pass it.
 - For a more memory-efficient training using adapters, you can load the base model in 8bit, for that simply add `load_in_8bit` argument when creating the [`SFTTrainer`], or create a base model in 8bit outside the trainer and pass it.
 - If you create a model outside the trainer, make sure to not pass to the trainer any additional keyword arguments that are relative to `from_pretrained()` method.
@@ -771,7 +764,3 @@ A full example of training LLaVa 1.5 on the [HuggingFaceH4/llava-instruct-mix-vs
 In the SFTTrainer we smartly support `datasets.IterableDataset` in addition to other style datasets. This is useful if you are using large corpora that you do not want to save all to disk. The data will be tokenized and processed on the fly, even when packing is enabled.
 
 Additionally, in the SFTTrainer, we support pre-tokenized datasets if they are `datasets.Dataset` or `datasets.IterableDataset`. In other words, if such a dataset has a column of `input_ids`, no further processing (tokenization or packing) will be done, and the dataset will be used as-is. This can be useful if you have pretokenized your dataset outside of this script and want to re-use it directly.
-
-### ConstantLengthDataset
-
-[[autodoc]] trainer.ConstantLengthDataset

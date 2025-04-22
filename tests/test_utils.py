@@ -1,4 +1,4 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
+# Copyright 2020-2025 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import textwrap
 import unittest
+from io import StringIO
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -27,12 +30,12 @@ from trl.trainer import compute_accuracy
 from trl.trainer.utils import (
     DataCollatorForChatML,
     batch_generation,
-    compute_token_accuracy,
     decode_and_strip_padding,
     flush_left,
     generate_model_card,
     get_peft_config,
     pad,
+    print_prompt_completions_sample,
     selective_log_softmax,
 )
 
@@ -456,60 +459,6 @@ class TestFlushLeft(unittest.TestCase):
         self.assertTrue(torch.equal(new_mask, expected_mask))
 
 
-class TestComputeTokenAccuracy(unittest.TestCase):
-    def test_basic_accuracy(self):
-        # Test basic accuracy computation
-        logits = torch.tensor([[[0.9, 0.1], [0.8, 0.2]], [[0.3, 0.7], [0.6, 0.4]]])  # Shape: [2, 2, 2]
-        labels = torch.tensor([[1, 0], [1, 0]])  # Shape: [2, 2]
-        accuracy = compute_token_accuracy(logits, labels)
-        self.assertAlmostEqual(accuracy, 0.75)  # 3 correct out of 4 tokens
-
-    def test_with_ignore_index(self):
-        # Test accuracy computation with ignored tokens
-        logits = torch.tensor([[[0.9, 0.1], [0.8, 0.2]], [[0.3, 0.7], [0.6, 0.4]]])
-        labels = torch.tensor([[1, -100], [1, 0]])  # -100 is ignored
-        accuracy = compute_token_accuracy(logits, labels, ignore_index=-100)
-        self.assertAlmostEqual(accuracy, 2 / 3)  # 2 correct out of 3 non-ignored tokens
-
-    def test_all_ignored(self):
-        # Test case where all tokens are ignored
-        logits = torch.tensor([[[0.1, 0.9], [0.8, 0.2]]])
-        labels = torch.tensor([[-100, -100]])
-        accuracy = compute_token_accuracy(logits, labels)
-        self.assertEqual(accuracy, 0.0)  # No valid tokens to compute accuracy
-
-    def test_perfect_accuracy(self):
-        # Test case with 100% accuracy
-        logits = torch.tensor([[[0.1, 0.9], [0.8, 0.2]]])
-        labels = torch.tensor([[1, 0]])
-        accuracy = compute_token_accuracy(logits, labels)
-        self.assertEqual(accuracy, 1.0)  # All predictions correct
-
-    def test_zero_accuracy(self):
-        # Test case with 0% accuracy
-        logits = torch.tensor([[[0.1, 0.9], [0.8, 0.2]]])
-        labels = torch.tensor([[0, 1]])
-        accuracy = compute_token_accuracy(logits, labels)
-        self.assertEqual(accuracy, 0.0)  # All predictions wrong
-
-    def test_batch_accuracy(self):
-        # Test accuracy computation across multiple batches
-        logits = torch.tensor(
-            [
-                [[0.9, 0.1], [0.8, 0.2], [0.3, 0.7]],  # Batch 1
-                [[0.2, 0.8], [0.7, 0.3], [0.6, 0.4]],  # Batch 2
-            ]
-        )
-        labels = torch.tensor(
-            [
-                [1, 0, 1],  # Batch 1
-                [1, 0, -100],  # Batch 2 (last token ignored)
-            ]
-        )
-        accuracy = compute_token_accuracy(logits, labels)
-        self.assertAlmostEqual(accuracy, 0.8)
-
-
 class TestSelectiveLogSoftmax(unittest.TestCase):
     @parameterized.expand([(torch.float64,), (torch.float32,), (torch.float16,), (torch.bfloat16,)])
     def test_selective_log_softmax(self, dtype):
@@ -529,3 +478,61 @@ class TestSelectiveLogSoftmax(unittest.TestCase):
             self.assertTrue(torch.equal(actual_output, expected_output))
         else:
             torch.testing.assert_close(actual_output, expected_output, rtol=1e-5, atol=1e-5)
+
+
+class TestPrintPromptCompletionsSample(unittest.TestCase):
+    @patch("sys.stdout", new_callable=StringIO)
+    def test_print_output(self, mock_stdout):
+        prompts = ["The sky is", "The sun is"]
+        completions = [" blue.", " in the sky."]
+        rewards = {"Correctness": [0.123, 0.456], "Format": [0.789, 0.101]}
+        step = 42
+
+        print_prompt_completions_sample(prompts, completions, rewards, step)
+
+        output = mock_stdout.getvalue()
+
+        expected_output = textwrap.dedent("""\
+        ╭────────────────────── Step 42 ───────────────────────╮
+        │ ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━┓ │
+        │ ┃ Prompt     ┃ Completion   ┃ Correctness ┃ Format ┃ │
+        │ ┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━┩ │
+        │ │ The sky is │  blue.       │        0.12 │   0.79 │ │
+        │ ├────────────┼──────────────┼─────────────┼────────┤ │
+        │ │ The sun is │  in the sky. │        0.46 │   0.10 │ │
+        │ └────────────┴──────────────┴─────────────┴────────┘ │
+        ╰──────────────────────────────────────────────────────╯
+        """)
+        self.assertEqual(output, expected_output)
+
+    @patch("sys.stdout", new_callable=StringIO)
+    def test_num_samples(self, mock_stdout):
+        prompts = ["A", "B"]
+        completions = ["1", "2"]
+        rewards = {"Score": [0.1, 0.2]}
+        step = 10
+
+        print_prompt_completions_sample(prompts, completions, rewards, step, num_samples=1)
+        output = mock_stdout.getvalue()
+
+        possible_outputs = [
+            textwrap.dedent("""\
+                ╭──────────── Step 10 ────────────╮
+                │ ┏━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓ │
+                │ ┃ Prompt ┃ Completion ┃ Score ┃ │
+                │ ┡━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩ │
+                │ │ A      │ 1          │  0.10 │ │
+                │ └────────┴────────────┴───────┘ │
+                ╰─────────────────────────────────╯
+                """),
+            textwrap.dedent("""\
+                ╭──────────── Step 10 ────────────╮
+                │ ┏━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━┓ │
+                │ ┃ Prompt ┃ Completion ┃ Score ┃ │
+                │ ┡━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━┩ │
+                │ │ B      │ 2          │  0.20 │ │
+                │ └────────┴────────────┴───────┘ │
+                ╰─────────────────────────────────╯
+                """),
+        ]
+        self.assertIn(output, possible_outputs)

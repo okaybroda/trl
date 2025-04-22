@@ -1,4 +1,4 @@
-# Copyright 2025 The HuggingFace Team. All rights reserved.
+# Copyright 2020-2025 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -76,7 +76,6 @@ _import_structure = {
         "disable_dropout_in_model",
         "empty_cache",
         "peft_module_casting_to_bf16",
-        "compute_token_accuracy",
     ],
     "xpo_config": ["XPOConfig"],
     "xpo_trainer": ["XPOTrainer"],
@@ -145,7 +144,6 @@ if TYPE_CHECKING:
         DataCollatorForCompletionOnlyLM,
         RunningMoments,
         compute_accuracy,
-        compute_token_accuracy,
         disable_dropout_in_model,
         empty_cache,
         peft_module_casting_to_bf16,

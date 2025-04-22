@@ -12,6 +12,10 @@
 
 [[autodoc]] maybe_apply_chat_template
 
+## maybe_convert_to_chatml
+    
+[[autodoc]] maybe_convert_to_chatml
+
 ## extract_prompt
 
 [[autodoc]] extract_prompt
@@ -31,3 +35,11 @@
 ## pack_examples
 
 [[autodoc]] pack_examples
+
+## pack_dataset
+
+[[autodoc]] pack_dataset
+
+## truncate_dataset
+
+[[autodoc]] truncate_dataset
